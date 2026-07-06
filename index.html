@@ -146,9 +146,9 @@
   </div>
 
   <div class="rail-title" style="margin-top:10px;">Global Layers</div>
+  <div class="layer-btn" data-layer="quakes"><span class="icon">🌎</span><span class="label">Earthquakes</span><div class="sw"></div><span class="flag" id="quakeFlag">Live</span></div>
   <div class="layer-btn soon"><span class="icon">✈️</span><span class="label">Flights</span><span class="flag">Soon</span></div>
   <div class="layer-btn soon"><span class="icon">🚢</span><span class="label">Ships</span><span class="flag">Soon</span></div>
-  <div class="layer-btn soon"><span class="icon">🌎</span><span class="label">Earthquakes</span><span class="flag">Soon</span></div>
   <div class="layer-btn soon"><span class="icon">🔥</span><span class="label">Wildfires</span><span class="flag">Soon</span></div>
 
   <div id="rail-foot">
@@ -522,6 +522,59 @@ function animateCurrents(t){
   });
 }
 
+/* ============================= EARTHQUAKES (live, USGS — direct browser fetch) ============================= */
+const quakeGroup = new THREE.Group();
+quakeGroup.visible = false;
+earthGroup.add(quakeGroup);
+let quakesLoaded = false;
+
+function magColor(mag){
+  if(mag >= 6) return 0xff3b3b;
+  if(mag >= 5) return 0xff9552;
+  if(mag >= 4) return 0xffd23f;
+  return 0x8fd8ff;
+}
+function magSize(mag){ return 0.05 + Math.max(mag,1) * 0.035; }
+
+async function loadEarthquakes(){
+  const flag = document.getElementById('quakeFlag');
+  flag.textContent = 'Loading…';
+  try{
+    const res = await fetch('https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/2.5_day.geojson');
+    if(!res.ok) throw new Error('USGS request failed: ' + res.status);
+    const data = await res.json();
+
+    data.features.forEach(f=>{
+      const mag = f.properties.mag ?? 1;
+      const [lon, lat] = f.geometry.coordinates;
+      const pos = latLonToVec3(lat, lon, R*1.01);
+
+      const geo = new THREE.SphereGeometry(magSize(mag), 10, 10);
+      const mat = new THREE.MeshBasicMaterial({ color: magColor(mag), transparent:true, opacity:0.9 });
+      const dot = new THREE.Mesh(geo, mat);
+      dot.position.copy(pos);
+      dot.userData = { mag, place: f.properties.place, time: f.properties.time };
+      quakeGroup.add(dot);
+
+      if(mag >= 5){
+        const ringGeo = new THREE.RingGeometry(magSize(mag)*1.6, magSize(mag)*2.1, 24);
+        const ringMat = new THREE.MeshBasicMaterial({ color: magColor(mag), transparent:true, opacity:0.5, side:THREE.DoubleSide, depthWrite:false });
+        const ring = new THREE.Mesh(ringGeo, ringMat);
+        ring.position.copy(pos);
+        ring.lookAt(pos.clone().multiplyScalar(2));
+        ring.userData = { pulse: Math.random()*Math.PI*2 };
+        quakeGroup.add(ring);
+      }
+    });
+
+    flag.textContent = data.features.length + ' events';
+    quakesLoaded = true;
+  } catch(err){
+    flag.textContent = 'Feed error';
+    console.error('USGS fetch failed:', err);
+  }
+}
+
 /* ============================= INTERACTION: drag rotate + zoom ============================= */
 let isDragging = false, lastX=0, lastY=0;
 let rotY = 0, rotX = -0.15;
@@ -558,6 +611,15 @@ sceneEl.addEventListener('pointerup', e=>{
   pointerV.x = (e.clientX/window.innerWidth)*2 - 1;
   pointerV.y = -(e.clientY/window.innerHeight)*2 + 1;
   raycaster.setFromCamera(pointerV, camera);
+
+  if(quakeGroup.visible){
+    const quakeHits = raycaster.intersectObjects(quakeGroup.children).filter(h=>h.object.userData && h.object.userData.mag !== undefined);
+    if(quakeHits.length){
+      showQuakeProbe(quakeHits[0].object.userData);
+      return;
+    }
+  }
+
   const hits = raycaster.intersectObject(earthMesh);
   if(hits.length){
     const local = earthGroup.worldToLocal(hits[0].point.clone());
@@ -574,6 +636,10 @@ document.querySelectorAll('.layer-btn[data-layer]').forEach(btn=>{
     btn.classList.toggle('on');
     const on = btn.classList.contains('on');
     if(key==='currents'){ currentGroup.visible = on; }
+    else if(key==='quakes'){
+      quakeGroup.visible = on;
+      if(on && !quakesLoaded) loadEarthquakes();
+    }
     else if(layerMeshes[key]){ layerMeshes[key].visible = on; }
     document.getElementById('legend').classList.toggle('show', document.querySelector('.layer-btn[data-layer="sst"]').classList.contains('on'));
   });
@@ -593,6 +659,19 @@ const probe = document.getElementById('probe');
 document.getElementById('probeClose').addEventListener('click', ()=> probe.classList.remove('show'));
 
 function fmt(n,d=1){ return n.toFixed(d); }
+
+function showQuakeProbe(d){
+  document.getElementById('probeCoord').textContent = d.place || 'Unknown location';
+  const body = document.getElementById('probeBody');
+  const note = document.getElementById('probeNote');
+  const when = new Date(d.time).toISOString().replace('T',' ').slice(0,16) + ' UTC';
+  body.innerHTML = `
+    <div class="row"><span class="k">Magnitude</span><span class="v ${d.mag>=5?'warn':''}">${fmt(d.mag)}</span></div>
+    <div class="row"><span class="k">Time</span><span class="v">${when}</span></div>
+  `;
+  note.textContent = 'Live event — USGS Earthquake Hazards Program, updated ~every minute.';
+  document.getElementById('probe').classList.add('show');
+}
 function showProbe(lat, lon){
   const ocean = isOcean(lat,lon);
   const latStr = `${fmt(Math.abs(lat))}°${lat>=0?'N':'S'}`;
@@ -660,6 +739,16 @@ function animate(){
   cloudMesh.rotation.y += 0.00015;
   waveTex.offset.x = (t*0.0006) % 1;
   animateCurrents(t);
+
+  if(quakeGroup.visible){
+    quakeGroup.children.forEach(obj=>{
+      if(obj.userData && obj.userData.pulse !== undefined){
+        obj.userData.pulse += 0.05;
+        const s = 1 + Math.sin(obj.userData.pulse)*0.25;
+        obj.scale.set(s,s,s);
+      }
+    });
+  }
 
   renderer.render(scene, camera);
 }
