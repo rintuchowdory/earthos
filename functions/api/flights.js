@@ -1,31 +1,26 @@
 export async function onRequestGet(context) {
   try {
-    // Bounded region query to stay under the free-tier CPU limit.
-    // Default: Europe. Pass ?bbox=lamin,lomin,lamax,lomax to override.
     const { searchParams } = new URL(context.request.url);
-    const bbox = searchParams.get("bbox") || "35,-10,60,30";
-    const [lamin, lomin, lamax, lomax] = bbox.split(",");
+    const lat = searchParams.get("lat") || "50.9";
+    const lon = searchParams.get("lon") || "6.9";
+    const dist = searchParams.get("dist") || "250"; // nautical miles, max 250
 
-    const url = `https://opensky-network.org/api/states/all?lamin=${lamin}&lomin=${lomin}&lamax=${lamax}&lomax=${lomax}`;
-    const res = await fetch(url, { headers: { "Accept": "application/json" } });
-
+    const res = await fetch(`https://api.adsb.lol/v2/lat/${lat}/lon/${lon}/dist/${dist}`);
     if (!res.ok) {
-      return new Response(JSON.stringify({ error: true, status: res.status, statusText: res.statusText }), {
+      return new Response(JSON.stringify({ error: true, status: res.status }), {
         status: 502, headers: { "content-type": "application/json", "access-control-allow-origin": "*" }
       });
     }
     const data = await res.json();
-    const flights = (data.states || [])
-      .filter(s => s[5] !== null && s[6] !== null)
-      .slice(0, 300)
-      .map(s => ({
-        callsign: (s[1] || "").trim(),
-        lon: s[5],
-        lat: s[6],
-        altitude: s[7],
-        velocity: s[9],
-        heading: s[10]
-      }));
+    const flights = (data.ac || []).map(a => ({
+      callsign: (a.flight || "").trim(),
+      lat: a.lat,
+      lon: a.lon,
+      altitude: a.alt_baro,
+      velocity: a.gs,
+      heading: a.track
+    })).filter(f => f.lat && f.lon);
+
     return new Response(JSON.stringify(flights), {
       headers: { "content-type": "application/json", "access-control-allow-origin": "*" }
     });
