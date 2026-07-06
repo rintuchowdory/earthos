@@ -1,0 +1,671 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>EARTHOS — Ocean Intelligence Layer</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&family=Inter:wght@400;500&display=swap');
+
+  :root{
+    --void:#050810;
+    --deep:#081525;
+    --panel:#0b1a2e;
+    --panel-line: rgba(120,180,220,0.14);
+    --cyan:#3fd8e0;
+    --cyan-dim: rgba(63,216,224,0.35);
+    --amber:#ff9552;
+    --fog:#dfeef5;
+    --fog-dim: rgba(223,238,245,0.55);
+    --mono: 'JetBrains Mono', monospace;
+    --disp: 'Space Grotesk', sans-serif;
+    --body: 'Inter', sans-serif;
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
+  html,body{margin:0; padding:0; width:100%; height:100%; background:var(--void); overflow:hidden; font-family:var(--body); color:var(--fog);}
+  #stars{position:fixed; inset:0; z-index:0;}
+  #scene{position:fixed; inset:0; z-index:1; cursor:grab;}
+  #scene.dragging{cursor:grabbing;}
+
+  .ui{position:fixed; z-index:5; pointer-events:none;}
+  .ui *{pointer-events:auto;}
+
+  /* ---- Header ---- */
+  #header{top:0; left:0; right:0; padding:22px 26px; display:flex; justify-content:space-between; align-items:flex-start;}
+  #brand{display:flex; flex-direction:column; gap:2px;}
+  #brand .mark{font-family:var(--disp); font-weight:700; font-size:20px; letter-spacing:0.14em; color:var(--fog); display:flex; align-items:center; gap:9px;}
+  #brand .mark .dot{width:8px; height:8px; border-radius:50%; background:var(--cyan); box-shadow:0 0 10px 2px var(--cyan-dim); animation:pulse 2.4s ease-in-out infinite;}
+  @keyframes pulse{0%,100%{opacity:1;}50%{opacity:0.35;}}
+  #brand .sub{font-family:var(--mono); font-size:11px; letter-spacing:0.04em; color:var(--fog-dim); text-transform:uppercase;}
+
+  #clock{font-family:var(--mono); font-size:12px; color:var(--fog-dim); text-align:right; letter-spacing:0.03em; line-height:1.6;}
+  #clock .t{color:var(--cyan); font-size:15px; font-weight:600;}
+
+  /* ---- Layer rail ---- */
+  #rail{top:100px; left:26px; bottom:26px; width:230px; display:flex; flex-direction:column; gap:10px; overflow-y:auto;}
+  .rail-title{font-family:var(--mono); font-size:10px; letter-spacing:0.14em; text-transform:uppercase; color:var(--fog-dim); margin:2px 4px 2px;}
+  .layer-btn{
+    background:var(--panel); border:1px solid var(--panel-line); border-radius:10px;
+    padding:11px 13px; display:flex; align-items:center; gap:11px; cursor:pointer;
+    transition:border-color .2s, background .2s; user-select:none;
+  }
+  .layer-btn:hover{border-color:rgba(63,216,224,0.4);}
+  .layer-btn .icon{font-size:16px; width:20px; text-align:center; filter:grayscale(1) opacity(0.5); transition:filter .2s;}
+  .layer-btn.on .icon{filter:none;}
+  .layer-btn .label{font-family:var(--disp); font-size:13px; font-weight:500; color:var(--fog-dim); flex:1; transition:color .2s;}
+  .layer-btn.on .label{color:var(--fog);}
+  .layer-btn .sw{width:30px; height:16px; border-radius:9px; background:rgba(255,255,255,0.08); position:relative; flex-shrink:0; transition:background .2s;}
+  .layer-btn .sw::after{content:''; position:absolute; top:2px; left:2px; width:12px; height:12px; border-radius:50%; background:#7c8ea0; transition:transform .2s, background .2s;}
+  .layer-btn.on .sw{background:rgba(63,216,224,0.28);}
+  .layer-btn.on .sw::after{transform:translateX(14px); background:var(--cyan);}
+  .layer-btn.soon{opacity:0.42; cursor:not-allowed;}
+  .layer-btn.soon .sw::after{background:#5a6675;}
+  .layer-btn .flag{margin-left:auto; font-family:var(--mono); font-size:8px; letter-spacing:0.06em; color:var(--amber); border:1px solid rgba(255,149,82,0.35); padding:2px 5px; border-radius:4px; text-transform:uppercase;}
+
+  #rail-foot{margin-top:auto; padding-top:8px; font-family:var(--mono); font-size:10px; color:var(--fog-dim); line-height:1.6; border-top:1px solid var(--panel-line); padding-top:12px;}
+
+  /* ---- Legend ---- */
+  #legend{top:100px; right:26px; width:190px; background:var(--panel); border:1px solid var(--panel-line); border-radius:10px; padding:14px 16px; display:none;}
+  #legend.show{display:block;}
+  #legend .lt{font-family:var(--mono); font-size:10px; letter-spacing:0.1em; text-transform:uppercase; color:var(--fog-dim); margin-bottom:8px;}
+  #legend .grad{height:8px; border-radius:4px; background:linear-gradient(90deg,#1b3a6b,#1f7a8c,#3fd8a0,#e8d449,#e8792e,#c62828); margin-bottom:6px;}
+  #legend .scale{display:flex; justify-content:space-between; font-family:var(--mono); font-size:9px; color:var(--fog-dim);}
+
+  /* ---- Telemetry card ---- */
+  #probe{
+    bottom:26px; left:270px; width:340px;
+    background:var(--panel); border:1px solid rgba(63,216,224,0.3); border-radius:12px;
+    padding:0; overflow:hidden; opacity:0; transform:translateY(14px); transition:opacity .35s, transform .35s; pointer-events:none;
+    box-shadow:0 20px 60px rgba(0,0,0,0.45);
+  }
+  #probe.show{opacity:1; transform:translateY(0); pointer-events:auto;}
+  #probe .ph{display:flex; align-items:center; gap:8px; padding:11px 15px; border-bottom:1px solid var(--panel-line); background:rgba(63,216,224,0.06);}
+  #probe .ph .rd{width:7px; height:7px; border-radius:50%; background:var(--cyan); box-shadow:0 0 8px 2px var(--cyan-dim);}
+  #probe .ph .ttl{font-family:var(--mono); font-size:10px; letter-spacing:0.1em; text-transform:uppercase; color:var(--cyan); flex:1;}
+  #probe .ph .close{cursor:pointer; color:var(--fog-dim); font-size:14px; padding:2px 4px;}
+  #probe .pb{padding:14px 15px 16px;}
+  #probe .coord{font-family:var(--mono); font-size:11px; color:var(--fog-dim); margin-bottom:10px;}
+  #probe .row{display:flex; justify-content:space-between; align-items:baseline; padding:6px 0; border-bottom:1px dashed var(--panel-line);}
+  #probe .row:last-child{border-bottom:none;}
+  #probe .row .k{font-family:var(--body); font-size:12px; color:var(--fog-dim);}
+  #probe .row .v{font-family:var(--mono); font-size:13px; color:var(--fog); font-weight:600;}
+  #probe .v.warn{color:var(--amber);}
+  #probe .note{margin-top:10px; font-family:var(--mono); font-size:10px; line-height:1.5; color:var(--fog-dim); border-top:1px solid var(--panel-line); padding-top:9px;}
+
+  /* ---- Bottom controls ---- */
+  #controls{bottom:26px; right:26px; display:flex; gap:8px;}
+  .ctrl-btn{
+    background:var(--panel); border:1px solid var(--panel-line); border-radius:9px; color:var(--fog-dim);
+    font-family:var(--mono); font-size:11px; padding:9px 13px; cursor:pointer; display:flex; align-items:center; gap:6px;
+    transition:border-color .2s, color .2s;
+  }
+  .ctrl-btn:hover{border-color:rgba(63,216,224,0.4); color:var(--fog);}
+  .ctrl-btn.active{color:var(--cyan); border-color:rgba(63,216,224,0.4);}
+
+  #hint{bottom:82px; left:50%; transform:translateX(-50%); font-family:var(--mono); font-size:10px; color:var(--fog-dim); letter-spacing:0.04em; text-align:center; opacity:0.7;}
+
+  ::-webkit-scrollbar{width:5px;} ::-webkit-scrollbar-thumb{background:rgba(255,255,255,0.15); border-radius:3px;}
+
+  @media (max-width: 760px){
+    #rail{width:180px;}
+    #probe{left:26px; width:calc(100% - 52px); bottom:96px;}
+    #legend{display:none !important;}
+    #hint{display:none;}
+  }
+</style>
+</head>
+<body>
+
+<canvas id="stars"></canvas>
+<div id="scene"></div>
+
+<div class="ui" id="header">
+  <div id="brand">
+    <div class="mark"><span class="dot"></span>EARTHOS</div>
+    <div class="sub">Ocean Intelligence Layer · Live Prototype</div>
+  </div>
+  <div id="clock">
+    <div class="t" id="clockTime">--:--:--</div>
+    <div id="clockDate">UTC</div>
+  </div>
+</div>
+
+<div class="ui" id="rail">
+  <div class="rail-title">Ocean Module</div>
+  <div class="layer-btn on" data-layer="sst">
+    <span class="icon">🌡️</span><span class="label">Sea Surface Temp</span><div class="sw"></div>
+  </div>
+  <div class="layer-btn on" data-layer="currents">
+    <span class="icon">🌊</span><span class="label">Ocean Currents</span><div class="sw"></div>
+  </div>
+  <div class="layer-btn on" data-layer="waves">
+    <span class="icon">〰️</span><span class="label">Wave Motion</span><div class="sw"></div>
+  </div>
+  <div class="layer-btn" data-layer="clouds">
+    <span class="icon">☁️</span><span class="label">Cloud Layer</span><div class="sw"></div>
+  </div>
+
+  <div class="rail-title" style="margin-top:10px;">Global Layers</div>
+  <div class="layer-btn soon"><span class="icon">✈️</span><span class="label">Flights</span><span class="flag">Soon</span></div>
+  <div class="layer-btn soon"><span class="icon">🚢</span><span class="label">Ships</span><span class="flag">Soon</span></div>
+  <div class="layer-btn soon"><span class="icon">🌎</span><span class="label">Earthquakes</span><span class="flag">Soon</span></div>
+  <div class="layer-btn soon"><span class="icon">🔥</span><span class="label">Wildfires</span><span class="flag">Soon</span></div>
+
+  <div id="rail-foot">
+    Click anywhere on the ocean to pull a live-style telemetry reading. Data shown is simulated for this prototype — real feeds (NOAA / Copernicus Marine) plug in via a backend layer.
+  </div>
+</div>
+
+<div class="ui" id="legend">
+  <div class="lt">Sea Surface Temp (°C)</div>
+  <div class="grad"></div>
+  <div class="scale"><span>-2</span><span>14</span><span>30+</span></div>
+</div>
+
+<div class="ui" id="probe">
+  <div class="ph"><span class="rd"></span><span class="ttl">Ocean Probe</span><span class="close" id="probeClose">✕</span></div>
+  <div class="pb">
+    <div class="coord" id="probeCoord">0.00°N, 0.00°E</div>
+    <div id="probeBody"></div>
+    <div class="note" id="probeNote"></div>
+  </div>
+</div>
+
+<div class="ui" id="hint">drag to rotate · scroll to zoom · click the globe to probe a location</div>
+
+<div class="ui" id="controls">
+  <div class="ctrl-btn active" id="btnRotate">⟳ Auto-rotate</div>
+  <div class="ctrl-btn" id="btnReset">⤾ Reset view</div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+(function(){
+
+/* ============================= STARFIELD (2D canvas bg) ============================= */
+const starCanvas = document.getElementById('stars');
+const sctx = starCanvas.getContext('2d');
+function sizeStars(){
+  starCanvas.width = window.innerWidth * devicePixelRatio;
+  starCanvas.height = window.innerHeight * devicePixelRatio;
+  sctx.setTransform(devicePixelRatio,0,0,devicePixelRatio,0,0);
+  sctx.fillStyle = '#050810';
+  sctx.fillRect(0,0,window.innerWidth, window.innerHeight);
+  for(let i=0;i<420;i++){
+    const x = Math.random()*window.innerWidth, y = Math.random()*window.innerHeight;
+    const r = Math.random()*1.1 + 0.15;
+    const a = Math.random()*0.7 + 0.15;
+    sctx.beginPath();
+    sctx.fillStyle = `rgba(220,235,245,${a})`;
+    sctx.arc(x,y,r,0,Math.PI*2);
+    sctx.fill();
+  }
+}
+sizeStars();
+window.addEventListener('resize', sizeStars);
+
+/* ============================= COORD HELPERS ============================= */
+const TW = 2048, TH = 1024; // texture size
+function project(lon,lat){ return [ (lon+180)/360*TW, (90-lat)/180*TH ]; }
+function latLonToVec3(lat, lon, radius){
+  const phi = (90-lat) * Math.PI/180;
+  const theta = (lon+180) * Math.PI/180;
+  return new THREE.Vector3(
+    -radius*Math.sin(phi)*Math.cos(theta),
+     radius*Math.cos(phi),
+     radius*Math.sin(phi)*Math.sin(theta)
+  );
+}
+function vec3ToLatLon(v, radius){
+  const nv = v.clone().normalize();
+  const lat = 90 - Math.acos(nv.y) * 180/Math.PI;
+  let lon = Math.atan2(nv.z, -nv.x) * 180/Math.PI - 180;
+  if(lon < -180) lon += 360;
+  if(lon > 180) lon -= 360;
+  return [lat, lon];
+}
+
+/* ============================= LAND SILHOUETTES (rough) ============================= */
+const CONTINENTS = [
+  // North America
+  [[-165,68],[-150,70],[-130,70],[-110,72],[-95,68],[-80,62],[-65,60],[-55,51],[-60,47],[-66,44],[-70,41],[-75,35],[-81,31],[-80,25],[-77,20],[-80,8],[-85,10],[-90,16],[-97,18],[-105,20],[-117,32],[-124,40],[-130,50],[-125,60],[-140,70],[-165,68]],
+  // South America
+  [[-80,8],[-70,10],[-60,8],[-50,5],[-40,0],[-35,-8],[-40,-15],[-48,-25],[-53,-35],[-58,-52],[-65,-55],[-68,-50],[-70,-40],[-75,-30],[-80,-18],[-81,-5],[-79,-2],[-77,4],[-80,8]],
+  // Africa
+  [[-17,15],[-10,10],[-9,5],[5,5],[9,5],[13,-5],[12,-18],[15,-30],[20,-34],[35,-25],[40,-15],[45,0],[51,12],[43,12],[35,20],[33,31],[20,32],[10,32],[0,20],[-10,20],[-17,15]],
+  // Eurasia (huge simplified block)
+  [[-10,36],[-10,38],[0,38],[10,38],[20,38],[30,36],[40,35],[50,30],[60,30],[65,25],[70,20],[75,15],[80,20],[90,22],[95,15],[100,8],[105,10],[110,20],[118,25],[122,30],[130,32],[140,35],[145,40],[140,45],[130,45],[120,50],[110,52],[100,50],[90,50],[80,50],[70,50],[60,45],[50,42],[45,40],[40,45],[30,45],[20,45],[10,45],[0,43],[-10,36]],
+  // India / SE Asia peninsula
+  [[68,24],[78,20],[80,13],[77,8],[73,15],[68,24]],
+  // Australia
+  [[113,-22],[113,-25],[115,-32],[122,-34],[130,-32],[135,-35],[140,-38],[145,-38],[150,-34],[153,-28],[150,-22],[145,-16],[140,-12],[130,-12],[120,-18],[113,-22]],
+  // Greenland
+  [[-45,60],[-50,62],[-55,70],[-50,80],[-35,82],[-25,78],[-30,75],[-40,70],[-45,60]],
+  // Japan (small)
+  [[130,32],[133,34],[140,36],[142,40],[141,45],[138,42],[132,34],[130,32]],
+  // UK/Ireland (small)
+  [[-8,50],[-6,55],[-3,58],[1,53],[-2,50],[-8,50]],
+  // Madagascar (small)
+  [[43,-12],[47,-14],[47,-22],[44,-25],[43,-18],[43,-12]],
+];
+function drawContinent(ctx, pts, fill){
+  ctx.beginPath();
+  pts.forEach((p,i)=>{
+    const [x,y] = project(p[0],p[1]);
+    if(i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
+  });
+  ctx.closePath();
+  ctx.fillStyle = fill;
+  ctx.fill();
+}
+
+/* ============================= BASE EARTH TEXTURE + OCEAN MASK ============================= */
+const earthCanvas = document.createElement('canvas');
+earthCanvas.width = TW; earthCanvas.height = TH;
+const ectx = earthCanvas.getContext('2d');
+
+const maskCanvas = document.createElement('canvas'); // white = ocean, black = land
+maskCanvas.width = TW; maskCanvas.height = TH;
+const mctx = maskCanvas.getContext('2d');
+
+function buildBaseTexture(){
+  // ocean gradient by latitude
+  const oceanGrad = ectx.createLinearGradient(0,0,0,TH);
+  oceanGrad.addColorStop(0.00,'#0c3a5c');
+  oceanGrad.addColorStop(0.28,'#0a4a72');
+  oceanGrad.addColorStop(0.50,'#0d5a82');
+  oceanGrad.addColorStop(0.72,'#0a4a72');
+  oceanGrad.addColorStop(1.00,'#0c3a5c');
+  ectx.fillStyle = oceanGrad;
+  ectx.fillRect(0,0,TW,TH);
+
+  // subtle ocean speckle
+  ectx.globalAlpha = 0.06;
+  for(let i=0;i<3000;i++){
+    ectx.fillStyle = Math.random()>0.5 ? '#ffffff' : '#000000';
+    ectx.fillRect(Math.random()*TW, Math.random()*TH, 2, 2);
+  }
+  ectx.globalAlpha = 1;
+
+  // ice caps
+  ectx.fillStyle = '#dce8ec';
+  ectx.fillRect(0,0,TW,42);
+  ectx.fillRect(0,TH-58,TW,58);
+
+  // land
+  CONTINENTS.forEach(c=>drawContinent(ectx, c, '#2b3d2e'));
+  // land shading texture
+  ectx.globalAlpha = 0.18;
+  CONTINENTS.forEach(c=>drawContinent(ectx, c, '#4a6b45'));
+  ectx.globalAlpha = 1;
+
+  // mask
+  mctx.fillStyle = '#ffffff';
+  mctx.fillRect(0,0,TW,TH);
+  CONTINENTS.forEach(c=>drawContinent(mctx, c, '#000000'));
+}
+buildBaseTexture();
+
+function isOcean(lat, lon){
+  const [x,y] = project(lon,lat);
+  const px = mctx.getImageData(Math.max(0,Math.min(TW-1,Math.floor(x))), Math.max(0,Math.min(TH-1,Math.floor(y))), 1, 1).data;
+  return px[0] > 128;
+}
+
+/* ============================= SST HEATMAP TEXTURE ============================= */
+const sstCanvas = document.createElement('canvas');
+sstCanvas.width = TW; sstCanvas.height = TH;
+const sctx2 = sstCanvas.getContext('2d');
+
+function tempColor(t){
+  // t in roughly -2..32
+  const stops = [
+    [-2, [27,58,107]], [8,[31,122,140]], [16,[63,216,160]],
+    [23,[232,212,73]], [28,[232,121,46]], [33,[198,40,40]]
+  ];
+  for(let i=0;i<stops.length-1;i++){
+    const [t0,c0] = stops[i], [t1,c1] = stops[i+1];
+    if(t>=t0 && t<=t1){
+      const f = (t-t0)/(t1-t0);
+      return [
+        Math.round(c0[0]+(c1[0]-c0[0])*f),
+        Math.round(c0[1]+(c1[1]-c0[1])*f),
+        Math.round(c0[2]+(c1[2]-c0[2])*f)
+      ];
+    }
+  }
+  return t < stops[0][0] ? stops[0][1] : stops[stops.length-1][1];
+}
+const ANOMALIES = [ // warm/cool blobs [lon,lat,radiusDeg,delta]
+  [-40, 32, 22, 4.5], [140, 8, 26, -3.5], [-160,0,20,3.2], [60,-30,18,-2.8], [-70,45,16,3.0]
+];
+function baseTempAt(lat){
+  return 30 - Math.abs(lat) * 0.42;
+}
+function buildSST(){
+  const img = sctx2.createImageData(TW, TH);
+  for(let y=0;y<TH;y+=2){
+    const lat = 90 - (y/TH)*180;
+    for(let x=0;x<TW;x+=2){
+      const lon = (x/TW)*360 - 180;
+      let t = baseTempAt(lat);
+      ANOMALIES.forEach(a=>{
+        let dLon = Math.abs(lon-a[0]); if(dLon>180) dLon = 360-dLon;
+        const d = Math.sqrt(dLon*dLon + (lat-a[1])*(lat-a[1]));
+        if(d < a[2]) t += a[3] * (1 - d/a[2]);
+      });
+      t += Math.sin(x*0.02)*0.6 + Math.cos(y*0.03)*0.6;
+      const [r,g,b] = tempColor(t);
+      for(let dy=0;dy<2;dy++) for(let dx=0;dx<2;dx++){
+        const idx = ((y+dy)*TW + (x+dx))*4;
+        img.data[idx]=r; img.data[idx+1]=g; img.data[idx+2]=b; img.data[idx+3]=255;
+      }
+    }
+  }
+  sctx2.putImageData(img,0,0);
+  // mask to ocean only
+  sctx2.globalCompositeOperation = 'destination-in';
+  sctx2.drawImage(maskCanvas,0,0);
+  sctx2.globalCompositeOperation = 'source-over';
+}
+buildSST();
+function sstTempAt(lat,lon){
+  let t = baseTempAt(lat);
+  ANOMALIES.forEach(a=>{
+    let dLon = Math.abs(lon-a[0]); if(dLon>180) dLon = 360-dLon;
+    const d = Math.sqrt(dLon*dLon + (lat-a[1])*(lat-a[1]));
+    if(d < a[2]) t += a[3] * (1 - d/a[2]);
+  });
+  return t;
+}
+
+/* ============================= WAVE OVERLAY TEXTURE ============================= */
+const waveCanvas = document.createElement('canvas');
+waveCanvas.width = TW; waveCanvas.height = TH;
+const wctx = waveCanvas.getContext('2d');
+function buildWaveTexture(){
+  wctx.clearRect(0,0,TW,TH);
+  wctx.strokeStyle = 'rgba(200,240,255,0.35)';
+  wctx.lineWidth = 1.4;
+  for(let y=0; y<TH; y+=9){
+    wctx.beginPath();
+    for(let x=0; x<=TW; x+=16){
+      const yy = y + Math.sin((x*0.02)+(y*0.1))*3;
+      if(x===0) wctx.moveTo(x,yy); else wctx.lineTo(x,yy);
+    }
+    wctx.stroke();
+  }
+  wctx.globalCompositeOperation = 'destination-in';
+  wctx.drawImage(maskCanvas,0,0);
+  wctx.globalCompositeOperation = 'source-over';
+}
+buildWaveTexture();
+
+/* ============================= CLOUD TEXTURE ============================= */
+const cloudCanvas = document.createElement('canvas');
+cloudCanvas.width = TW; cloudCanvas.height = TH;
+const cctx = cloudCanvas.getContext('2d');
+function buildClouds(){
+  cctx.clearRect(0,0,TW,TH);
+  for(let i=0;i<160;i++){
+    const x = Math.random()*TW, y = Math.random()*TH*0.85 + TH*0.05;
+    const r = 30 + Math.random()*90;
+    const g = cctx.createRadialGradient(x,y,0,x,y,r);
+    g.addColorStop(0, 'rgba(255,255,255,0.55)');
+    g.addColorStop(1, 'rgba(255,255,255,0)');
+    cctx.fillStyle = g;
+    cctx.beginPath(); cctx.ellipse(x,y,r,r*0.5,0,0,Math.PI*2); cctx.fill();
+  }
+}
+buildClouds();
+
+/* ============================= THREE.JS SCENE ============================= */
+const mount = document.getElementById('scene');
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(45, window.innerWidth/window.innerHeight, 0.1, 1000);
+camera.position.set(0,0,13);
+
+const renderer = new THREE.WebGLRenderer({antialias:true, alpha:true});
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+mount.appendChild(renderer.domElement);
+
+const earthGroup = new THREE.Group();
+scene.add(earthGroup);
+
+const R = 5;
+const earthTex = new THREE.CanvasTexture(earthCanvas);
+const earthGeo = new THREE.SphereGeometry(R, 64, 64);
+const earthMat = new THREE.MeshPhongMaterial({ map: earthTex, shininess:8, specular:0x113344 });
+const earthMesh = new THREE.Mesh(earthGeo, earthMat);
+earthGroup.add(earthMesh);
+
+// SST overlay
+const sstTex = new THREE.CanvasTexture(sstCanvas);
+const sstMat = new THREE.MeshBasicMaterial({ map:sstTex, transparent:true, opacity:0.82, depthWrite:false });
+const sstMesh = new THREE.Mesh(new THREE.SphereGeometry(R*1.004,64,64), sstMat);
+earthGroup.add(sstMesh);
+
+// Wave overlay
+const waveTex = new THREE.CanvasTexture(waveCanvas);
+waveTex.wrapS = THREE.RepeatWrapping;
+const waveMat = new THREE.MeshBasicMaterial({ map:waveTex, transparent:true, opacity:0.5, blending:THREE.AdditiveBlending, depthWrite:false });
+const waveMesh = new THREE.Mesh(new THREE.SphereGeometry(R*1.008,64,64), waveMat);
+earthGroup.add(waveMesh);
+
+// Cloud layer
+const cloudTex = new THREE.CanvasTexture(cloudCanvas);
+const cloudMat = new THREE.MeshBasicMaterial({ map:cloudTex, transparent:true, opacity:0.75, depthWrite:false });
+const cloudMesh = new THREE.Mesh(new THREE.SphereGeometry(R*1.02,48,48), cloudMat);
+cloudMesh.visible = false;
+earthGroup.add(cloudMesh);
+
+// Atmosphere glow
+const atmoGeo = new THREE.SphereGeometry(R*1.05, 48, 48);
+const atmoMat = new THREE.MeshBasicMaterial({ color:0x3fd8e0, transparent:true, opacity:0.06, side:THREE.BackSide });
+earthGroup.add(new THREE.Mesh(atmoGeo, atmoMat));
+
+// Lighting — day/night via sun direction based on current UTC time
+const sun = new THREE.DirectionalLight(0xffffff, 1.4);
+scene.add(sun);
+scene.add(new THREE.AmbientLight(0x2a3a4a, 0.9));
+
+function updateSun(){
+  const now = new Date();
+  const utcHours = now.getUTCHours() + now.getUTCMinutes()/60;
+  const sunLon = 180 - (utcHours/24)*360; // rough subsolar longitude
+  const p = latLonToVec3(0, sunLon, 40);
+  sun.position.copy(p);
+}
+updateSun();
+
+/* ============================= OCEAN CURRENTS (animated particles) ============================= */
+const CURRENT_PATHS = [
+  // Gulf Stream-ish
+  [[-90,24],[-80,26],[-70,32],[-60,38],[-45,45],[-25,50],[-10,55],[5,58]],
+  // Kuroshio-ish
+  [[125,20],[130,28],[138,35],[150,40],[165,45],[-175,48]],
+  // Equatorial band
+  [[-170,3],[-130,2],[-90,1],[-50,0],[-10,1],[30,2],[70,1],[110,0],[150,1]],
+  // Antarctic circumpolar
+  [[-170,-52],[-120,-54],[-70,-56],[-20,-54],[30,-52],[80,-55],[130,-53],[170,-54],[-170,-52]],
+  // Benguela / South Atlantic
+  [[15,-30],[5,-20],[-5,-10],[-15,0]],
+];
+const currentGroup = new THREE.Group();
+earthGroup.add(currentGroup);
+const currentSystems = [];
+
+function makeCurrent(path){
+  const pts = path.map(([lon,lat]) => latLonToVec3(lat,lon, R*1.012));
+  const curve = new THREE.CatmullRomCurve3(pts, false, 'catmullrom', 0.5);
+  const count = 46;
+  const geo = new THREE.BufferGeometry();
+  const positions = new Float32Array(count*3);
+  geo.setAttribute('position', new THREE.BufferAttribute(positions,3));
+  const mat = new THREE.PointsMaterial({ color:0x5fe8ee, size:0.09, transparent:true, opacity:0.9, blending:THREE.AdditiveBlending, depthWrite:false });
+  const points = new THREE.Points(geo, mat);
+  currentGroup.add(points);
+  currentSystems.push({curve, points, count, offset: Math.random()});
+}
+CURRENT_PATHS.forEach(makeCurrent);
+
+function animateCurrents(t){
+  currentSystems.forEach(sys=>{
+    const arr = sys.points.geometry.attributes.position.array;
+    for(let i=0;i<sys.count;i++){
+      let f = ((t*0.02) + sys.offset + i/sys.count) % 1;
+      const p = sys.curve.getPointAt(f);
+      arr[i*3]=p.x; arr[i*3+1]=p.y; arr[i*3+2]=p.z;
+    }
+    sys.points.geometry.attributes.position.needsUpdate = true;
+  });
+}
+
+/* ============================= INTERACTION: drag rotate + zoom ============================= */
+let isDragging = false, lastX=0, lastY=0;
+let rotY = 0, rotX = -0.15;
+let autoRotate = true;
+const sceneEl = document.getElementById('scene');
+
+sceneEl.addEventListener('pointerdown', e=>{
+  isDragging = true; lastX = e.clientX; lastY = e.clientY;
+  sceneEl.classList.add('dragging');
+});
+window.addEventListener('pointerup', ()=>{ isDragging=false; sceneEl.classList.remove('dragging'); });
+window.addEventListener('pointermove', e=>{
+  if(!isDragging) return;
+  const dx = e.clientX - lastX, dy = e.clientY - lastY;
+  rotY += dx * 0.005;
+  rotX += dy * 0.005;
+  rotX = Math.max(-1.3, Math.min(1.3, rotX));
+  lastX = e.clientX; lastY = e.clientY;
+});
+let dist = 13;
+sceneEl.addEventListener('wheel', e=>{
+  dist += e.deltaY * 0.01;
+  dist = Math.max(7.5, Math.min(22, dist));
+}, {passive:true});
+
+/* click to probe */
+const raycaster = new THREE.Raycaster();
+const pointerV = new THREE.Vector2();
+let dragMoved = false;
+sceneEl.addEventListener('pointerdown', e=>{ dragMoved = false; });
+window.addEventListener('pointermove', e=>{ if(isDragging) dragMoved = true; });
+sceneEl.addEventListener('pointerup', e=>{
+  if(dragMoved) return;
+  pointerV.x = (e.clientX/window.innerWidth)*2 - 1;
+  pointerV.y = -(e.clientY/window.innerHeight)*2 + 1;
+  raycaster.setFromCamera(pointerV, camera);
+  const hits = raycaster.intersectObject(earthMesh);
+  if(hits.length){
+    const local = earthGroup.worldToLocal(hits[0].point.clone());
+    const [lat,lon] = vec3ToLatLon(local, R);
+    showProbe(lat, lon);
+  }
+});
+
+/* ============================= UI: layer toggles ============================= */
+const layerMeshes = { sst: sstMesh, waves: waveMesh, clouds: cloudMesh };
+document.querySelectorAll('.layer-btn[data-layer]').forEach(btn=>{
+  btn.addEventListener('click', ()=>{
+    const key = btn.dataset.layer;
+    btn.classList.toggle('on');
+    const on = btn.classList.contains('on');
+    if(key==='currents'){ currentGroup.visible = on; }
+    else if(layerMeshes[key]){ layerMeshes[key].visible = on; }
+    document.getElementById('legend').classList.toggle('show', document.querySelector('.layer-btn[data-layer="sst"]').classList.contains('on'));
+  });
+});
+document.getElementById('legend').classList.add('show');
+
+document.getElementById('btnRotate').addEventListener('click', function(){
+  autoRotate = !autoRotate;
+  this.classList.toggle('active', autoRotate);
+});
+document.getElementById('btnReset').addEventListener('click', ()=>{
+  rotY = 0; rotX = -0.15; dist = 13;
+});
+
+/* ============================= Probe card ============================= */
+const probe = document.getElementById('probe');
+document.getElementById('probeClose').addEventListener('click', ()=> probe.classList.remove('show'));
+
+function fmt(n,d=1){ return n.toFixed(d); }
+function showProbe(lat, lon){
+  const ocean = isOcean(lat,lon);
+  const latStr = `${fmt(Math.abs(lat))}°${lat>=0?'N':'S'}`;
+  const lonStr = `${fmt(Math.abs(lon))}°${lon>=0?'E':'W'}`;
+  document.getElementById('probeCoord').textContent = `${latStr}, ${lonStr}`;
+  const body = document.getElementById('probeBody');
+  const note = document.getElementById('probeNote');
+
+  if(!ocean){
+    body.innerHTML = `
+      <div class="row"><span class="k">Surface</span><span class="v">Landmass</span></div>
+      <div class="row"><span class="k">Ocean layer</span><span class="v">Not applicable</span></div>
+    `;
+    note.textContent = 'Probe a blue region to read sea surface conditions.';
+  } else {
+    const t = sstTempAt(lat,lon);
+    const wave = 0.4 + Math.abs(Math.sin(lat*0.11 + lon*0.07))*2.6 + Math.random()*0.4;
+    const current = 0.15 + Math.abs(Math.cos(lat*0.09 - lon*0.05))*1.5;
+    let coral = 'Low', coralWarn = false;
+    if(t>29){ coral='High'; coralWarn=true; } else if(t>26.5){ coral='Moderate'; coralWarn=true; }
+    body.innerHTML = `
+      <div class="row"><span class="k">Sea surface temp</span><span class="v ${t>29?'warn':''}">${fmt(t)}°C</span></div>
+      <div class="row"><span class="k">Wave height</span><span class="v ${wave>2.4?'warn':''}">${fmt(wave)} m</span></div>
+      <div class="row"><span class="k">Current speed</span><span class="v">${fmt(current)} m/s</span></div>
+      <div class="row"><span class="k">Coral bleaching risk</span><span class="v ${coralWarn?'warn':''}">${coral}</span></div>
+    `;
+    note.textContent = 'Simulated reading — a production build queries NOAA / Copernicus Marine via a backend proxy for this exact coordinate.';
+  }
+  probe.classList.add('show');
+}
+
+/* ============================= Clock ============================= */
+function tickClock(){
+  const now = new Date();
+  const hh = String(now.getUTCHours()).padStart(2,'0');
+  const mm = String(now.getUTCMinutes()).padStart(2,'0');
+  const ss = String(now.getUTCSeconds()).padStart(2,'0');
+  document.getElementById('clockTime').textContent = `${hh}:${mm}:${ss}`;
+  document.getElementById('clockDate').textContent = now.toISOString().slice(0,10) + ' UTC';
+}
+setInterval(tickClock, 1000);
+tickClock();
+setInterval(updateSun, 60000);
+
+/* ============================= Resize ============================= */
+window.addEventListener('resize', ()=>{
+  camera.aspect = window.innerWidth/window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+
+/* ============================= Render loop ============================= */
+let t = 0;
+function animate(){
+  requestAnimationFrame(animate);
+  t += 1;
+  if(autoRotate && !isDragging) rotY += 0.0009;
+
+  earthGroup.rotation.y = rotY;
+  earthGroup.rotation.x = rotX;
+
+  camera.position.set(0,0,dist);
+  camera.lookAt(0,0,0);
+
+  cloudMesh.rotation.y += 0.00015;
+  waveTex.offset.x = (t*0.0006) % 1;
+  animateCurrents(t);
+
+  renderer.render(scene, camera);
+}
+animate();
+
+})();
+</script>
+</body>
+</html>
